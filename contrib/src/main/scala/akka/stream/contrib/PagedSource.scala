@@ -10,16 +10,17 @@ object PagedSource {
 
   import scala.concurrent.ExecutionContext.Implicits.global // todo
 
-  case class Page[T](next: Option[Int], items: immutable.Seq[T])
+  case class Page[K, T](nextKey: Option[K], items: immutable.Iterable[T])
 
-  def apply[T](
-    f: Int => Future[Page[T]],
-    firstPage: Int = 0
+  def apply[K, T](
+    f: Option[K] => Future[Page[K, T]],
+    firstKey: K
   ): Source[T, NotUsed] = {
-    val pageSource: Source[Page[T], NotUsed] = Source.unfoldAsync[Int, Page[T]](firstPage)(i => f(i).map {
-      case nonEmptyPage @ Page(_, items) if items.nonEmpty => Some((i + 1) -> nonEmptyPage)
-      case _ => None
-    })
+    val pageSource: Source[Page[K, T], NotUsed] =
+      Source.unfoldAsync[Option[K], Page[K, T]](Some(firstKey))(key => f(key).map {
+        case nonEmptyPage @ Page(nextKey, items) if items.nonEmpty => Some(nextKey -> nonEmptyPage)
+        case _ => None
+      })
     pageSource.flatMapConcat(page => Source(page.items))
   }
 
