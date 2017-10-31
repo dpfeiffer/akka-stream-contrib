@@ -5,30 +5,57 @@ package akka.stream.contrib
 
 import org.scalatest.concurrent.ScalaFutures
 
+import PagedSourceSpec._
 import akka.stream.scaladsl.Sink
 
+import scala.collection.immutable
 import scala.concurrent.Future
 
-class PagedSourceSpec extends BaseStreamSpec with ScalaFutures {
-  override protected def autoFusing = false
+object PagedSourceSpec {
+
+  import scala.concurrent.ExecutionContext.Implicits.global
 
   case class MultiplesOfTwo(size: Option[Int] = None) {
 
     val itemsPerPage = 2
 
     def page(key: Int): Future[PagedSource.Page[Int, Int]] =
-      Future.successful {
+      Future {
         val indices = key * itemsPerPage until (key + 1) * itemsPerPage
         val filteredIndices = size match {
           case Some(sz) => indices.filter(_ < sz)
           case None => indices
         }
-        PagedSource.Page(Some(key + 1), filteredIndices.map(_ * 2))
+        PagedSource.Page(filteredIndices.map(_ * 2), Some(key + 1))
       }
   }
 
-  "PagedSource" should {
-    "returns the items in the proper order" in {
+  object IndexedStringPages {
+    def page(key: Int): immutable.Seq[String] = key match {
+      case 1 => immutable.Seq("a", "b", "c")
+      case 2 => immutable.Seq("d", "e")
+      case _ => immutable.Seq.empty
+    }
+  }
+
+  object LinkedIntPages {
+    def page(key: String): (immutable.Seq[Int], String) = key match {
+      case "first" => (immutable.Seq(1, 2), "second")
+      case "second" => (immutable.Seq(3, 4, 5), "")
+      case _ => (immutable.Seq(6), "")
+    }
+  }
+
+}
+
+class PagedSourceSpec extends BaseStreamSpec with ScalaFutures {
+
+  import scala.concurrent.ExecutionContext.Implicits.global
+
+  override protected def autoFusing = false
+
+  "PagedSource - MultiplesOfTwo" should {
+    "return the items in the proper order" in {
       val source = PagedSource(0)(MultiplesOfTwo().page(_))
 
       val result = source.take(3).runWith(Sink.seq)
@@ -37,12 +64,48 @@ class PagedSourceSpec extends BaseStreamSpec with ScalaFutures {
       }
     }
 
-    "returns not more items then available" in {
+    "return not more items then available" in {
       val source = PagedSource(0)(MultiplesOfTwo(Some(4)).page(_))
 
       val result = source.take(10).runWith(Sink.seq)
       whenReady(result) { a =>
         a.length shouldBe 4
+      }
+    }
+  }
+
+  "PagedSource - IndexedStringPages" should {
+    val source = PagedSource[String, Int](1)(i =>
+      Future(PagedSource.Page(IndexedStringPages.page(i), Some(i + 1))))
+    "return the items in the proper order" in {
+      val result = source.take(4).runWith(Sink.seq)
+      whenReady(result) { a =>
+        a shouldBe Seq("a", "b", "c", "d")
+      }
+    }
+    "close stream when received empty page" in {
+      val result = source.runWith(Sink.seq)
+      whenReady(result) { a =>
+        a shouldBe Seq("a", "b", "c", "d", "e")
+      }
+    }
+  }
+
+  "PagedSource - LinkedIntPages" should {
+    val source = PagedSource[Int, String]("first") { key =>
+      val (items, next) = LinkedIntPages.page(key)
+      Future(PagedSource.Page(items, if (next.isEmpty) None else Some(next)))
+    }
+    "return the items in the proper order" in {
+      val result = source.take(4).runWith(Sink.seq)
+      whenReady(result) { a =>
+        a shouldBe Seq(1, 2, 3, 4)
+      }
+    }
+    "close stream when received empty link" in {
+      val result = source.runWith(Sink.seq)
+      whenReady(result) { a =>
+        a shouldBe Seq(1, 2, 3, 4, 5)
       }
     }
   }
