@@ -8,7 +8,6 @@ import org.scalatest.concurrent.ScalaFutures
 import PagedSourceSpec._
 import akka.stream.scaladsl.Sink
 
-import scala.collection.immutable
 import scala.concurrent.Future
 
 object PagedSourceSpec {
@@ -31,28 +30,30 @@ object PagedSourceSpec {
   }
 
   object IndexedStringPages {
-    def page(key: Int): immutable.Seq[String] = key match {
-      case 1 => immutable.Seq("a", "b", "c")
-      case 2 => immutable.Seq("d", "e")
-      case _ => immutable.Seq.empty
+    def page(key: Int): List[String] = key match {
+      case 1 => List("a", "b", "c")
+      case 2 => List("d", "e")
+      case _ => Nil
     }
   }
 
   object LinkedIntPages {
-    def page(key: String): (immutable.Seq[Int], String) = key match {
-      case "first" => (immutable.Seq(1, 2), "second")
-      case "second" => (immutable.Seq(3, 4, 5), "")
-      case _ => (immutable.Seq(6), "")
+    def page(key: String): (List[Int], String) = key match {
+      case "first" => (List(1, 2), "second")
+      case "second" => (List(3, 4, 5), "")
+      case _ => (List(6), "")
     }
   }
 
 }
 
-class PagedSourceSpec extends BaseStreamSpec with ScalaFutures {
+class PagedSourceSpecAutoFusingOn extends {val autoFusing = true } with PagedSourceSpec
+
+class PagedSourceSpecAutoFusingOff extends {val autoFusing = false } with PagedSourceSpec
+
+trait PagedSourceSpec extends BaseStreamSpec with ScalaFutures {
 
   import scala.concurrent.ExecutionContext.Implicits.global
-
-  override protected def autoFusing = false
 
   "PagedSource - MultiplesOfTwo" should {
     "return the items in the proper order" in {
